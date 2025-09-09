@@ -1,26 +1,44 @@
 from flask import Flask, request, jsonify, send_from_directory
-import json, os, re
+import os, re
+import pandas as pd   # NEW → Using pandas for Excel operations
 
 app = Flask(__name__, static_folder="../frontend", static_url_path="")
 
-USERS_FILE = "users.json"
+USERS_FILE = "users.xlsx"   # CHANGED → Now storing in Excel instead of JSON
 
-# Load users from JSON file
+
+# Load users from Excel
 def load_users():
     if os.path.exists(USERS_FILE):
-        with open(USERS_FILE, "r") as f:
-            return json.load(f)
+        df = pd.read_excel(USERS_FILE)
+        return df.to_dict(orient="records")
     return []
 
-# Save users to JSON file
+
+# Save users to Excel
 def save_users(users):
-    with open(USERS_FILE, "w") as f:
-        json.dump(users, f, indent=2)
+    df = pd.DataFrame(users)
+    df.to_excel(USERS_FILE, index=False)
+
 
 # Serve frontend
 @app.route("/")
 def index():
     return send_from_directory(app.static_folder, "index.html")
+
+
+# Serve users.html
+@app.route("/users")
+def users_page():
+    return send_from_directory(app.static_folder, "users.html")   # NEW
+
+
+# API → fetch all users for table
+@app.route("/get_users")
+def get_users():
+    users = load_users()
+    return jsonify(users)   # NEW → return all users as JSON
+
 
 # Register endpoint
 @app.route("/register", methods=["POST"])
@@ -28,58 +46,69 @@ def register():
     data = request.json
     users = load_users()
 
-     # Check for empty fields
+    errors = {}  # NEW → Store field-specific errors
+
+    # Check for empty fields
     if not data.get("firstName", "").strip():
-        return jsonify({"error": "First Name is required"}), 400
+        errors["firstName"] = "First Name is required"
     if not data.get("lastName", "").strip():
-        return jsonify({"error": "Last Name is required"}), 400
+        errors["lastName"] = "Last Name is required"
     if not data.get("dob", "").strip():
-        return jsonify({"error": "Date of Birth is required"}), 400
+        errors["dob"] = "Date of Birth is required"
     if not data.get("username", "").strip():
-        return jsonify({"error": "Username is required"}), 400
+        errors["username"] = "Username is required"
+    if not data.get("email", "").strip():
+        errors["email"] = "Email is required"
+    if not data.get("mobile", "").strip():
+        errors["mobile"] = "Mobile Number is required"
     if not data.get("password", "").strip():
-        return jsonify({"error": "Password is required"}), 400
+        errors["password"] = "Password is required"
     if not data.get("confirmPassword", "").strip():
-        return jsonify({"error": "Confirm Password is required"}), 400
+        errors["confirmPassword"] = "Confirm Password is required"
+
+    if errors:
+        return jsonify({"errors": errors}), 400  # CHANGED → Return errors by field
 
     # First & Last Name
-    if not re.match(r"^[A-Za-z]+$", data.get("firstName", "")):
-        return jsonify({"error": "Only letters are allowed in First Name"}), 400
-    if not re.match(r"^[A-Za-z]+$", data.get("lastName", "")):
-        return jsonify({"error": "Only letters are allowed in Last Name"}), 400
+    if not re.match(r"^[A-Za-z ]+$", data["firstName"]):
+         errors["firstName"] = "Only letters and spaces are allowed"
+    if not re.match(r"^[A-Za-z ]+$", data["lastName"]):
+         errors["lastName"] = "Only letters and spaces are allowed"
+
 
     # Username
-    username = data.get("username", "")
-    # Case-insensitive uniqueness check
+    username = data["username"]
     if any(u["username"].lower() == username.lower() for u in users):
-        return jsonify({"error": "Username already taken"}), 400
-    # Updated regex for username: 8–25 characters, allowed chars, no email/mobile
+        errors["username"] = "Username already taken"
     if not re.match(r"^(?!.*@)(?!.*\d{10})[A-Za-z0-9_.-]{8,25}$", username):
-        return jsonify({"error": "Invalid username format"}), 400
+        errors["username"] = "Invalid username format"
 
     # Email
-    email = data.get("email", "")
+    email = data["email"]
     if not re.match(r"^[\w\.-]+@[\w\.-]+\.\w+$", email):
-        return jsonify({"error": "Invalid email format"}), 400
+        errors["email"] = "Invalid email format"
 
-    # Mobile (India)
-    mobile = data.get("mobile", "")
+    # Mobile
+    mobile = data["mobile"]
     if not re.match(r"^[6-9]\d{9}$", mobile):
-        return jsonify({"error": "Invalid mobile number"}), 400
+        errors["mobile"] = "Invalid mobile number"
 
     # Password
-    password = data.get("password", "")
-    confirmPassword = data.get("confirmPassword", "")
+    password = data["password"]
+    confirmPassword = data["confirmPassword"]
     if not re.match(r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&]).{8,}$", password):
-        return jsonify({"error": "Password must be 8+ chars with uppercase, lowercase, number, special char"}), 400
+        errors["password"] = "Password must be 8+ chars with uppercase, lowercase, number, special char"
     if password != confirmPassword:
-        return jsonify({"error": "Passwords do not match"}), 400
+        errors["confirmPassword"] = "Passwords do not match"
+
+    if errors:
+        return jsonify({"errors": errors}), 400  # CHANGED
 
     # Save validated user (without storing password for security)
     new_user = {
         "firstName": data["firstName"],
         "lastName": data["lastName"],
-        "dob": data.get("dob", ""),
+        "dob": data["dob"],
         "username": username,
         "email": email,
         "mobile": mobile
@@ -88,6 +117,7 @@ def register():
     save_users(users)
 
     return jsonify({"message": "Registration successful!"})
+
 
 if __name__ == "__main__":
     app.run(debug=True)
