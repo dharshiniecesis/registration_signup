@@ -1,6 +1,9 @@
 document.getElementById("registrationForm").addEventListener("submit", function (e) {
   e.preventDefault();
 
+  // Clear old errors
+  document.querySelectorAll("small.text-danger").forEach(el => el.textContent = "");
+
   let firstName = document.getElementById("firstName").value.trim();
   let lastName = document.getElementById("lastName").value.trim();
   let dob = document.getElementById("dob").value.trim();
@@ -19,13 +22,15 @@ document.getElementById("registrationForm").addEventListener("submit", function 
   })
   .then(res => res.json())
   .then(result => {
-    if(result.error){
-      alert(result.error);
+    if(result.errors){ 
+      // Show errors under inputs
+      Object.keys(result.errors).forEach(key => {
+        document.getElementById(key + "Error").textContent = result.errors[key];
+      });
     } else {
-      alert(result.message);
-      document.getElementById("registrationForm").reset();
+      // Redirect to users.html after success
+      window.location.href = "/users";
     }
   })
   .catch(err => console.error("Error:", err));
 });
-
