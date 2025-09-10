@@ -1,123 +1,95 @@
 from flask import Flask, request, jsonify, send_from_directory
-import os, re
-import pandas as pd   # NEW → Using pandas for Excel operations
+from flask_migrate import Migrate
+import re
+from models import db, User   # Import db and User model
 
 app = Flask(__name__, static_folder="../frontend", static_url_path="")
 
-USERS_FILE = "users.xlsx"   # CHANGED → Now storing in Excel instead of JSON
+# ✅ Configure MySQL Database
+# Replace with your MySQL credentials
+app.config["SQLALCHEMY_DATABASE_URI"] = "mysql+pymysql://root:root@localhost/register_db"
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
-
-# Load users from Excel
-def load_users():
-    if os.path.exists(USERS_FILE):
-        df = pd.read_excel(USERS_FILE)
-        return df.to_dict(orient="records")
-    return []
-
-
-# Save users to Excel
-def save_users(users):
-    df = pd.DataFrame(users)
-    df.to_excel(USERS_FILE, index=False)
-
+# ✅ Init DB + Migration
+db.init_app(app)
+migrate = Migrate(app, db)
 
 # Serve frontend
 @app.route("/")
 def index():
     return send_from_directory(app.static_folder, "index.html")
 
-
 # Serve users.html
 @app.route("/users")
 def users_page():
-    return send_from_directory(app.static_folder, "users.html")   # NEW
+    return send_from_directory(app.static_folder, "users.html")
 
-
-# API → fetch all users for table
+# Fetch users from DB
 @app.route("/get_users")
 def get_users():
-    users = load_users()
-    return jsonify(users)   # NEW → return all users as JSON
-
+    users = User.query.all()
+    return jsonify([u.to_dict() for u in users])
 
 # Register endpoint
 @app.route("/register", methods=["POST"])
 def register():
     data = request.json
-    users = load_users()
+    errors = {}
 
-    errors = {}  # NEW → Store field-specific errors
+    # Required fields
+    required_fields = ["firstName", "lastName", "dob", "username", "email", "mobile", "password", "confirmPassword"]
+    for field in required_fields:
+        if not data.get(field, "").strip():
+            errors[field] = f"{field.replace('confirmPassword','Confirm Password').capitalize()} is required"
 
-    # Check for empty fields
-    if not data.get("firstName", "").strip():
-        errors["firstName"] = "First Name is required"
-    if not data.get("lastName", "").strip():
-        errors["lastName"] = "Last Name is required"
-    if not data.get("dob", "").strip():
-        errors["dob"] = "Date of Birth is required"
-    if not data.get("username", "").strip():
-        errors["username"] = "Username is required"
-    if not data.get("email", "").strip():
-        errors["email"] = "Email is required"
-    if not data.get("mobile", "").strip():
-        errors["mobile"] = "Mobile Number is required"
-    if not data.get("password", "").strip():
-        errors["password"] = "Password is required"
-    if not data.get("confirmPassword", "").strip():
-        errors["confirmPassword"] = "Confirm Password is required"
+    # Name validation
+    if not re.match(r"^[A-Za-z ]+$", data.get("firstName", "")):
+        errors["firstName"] = "Only letters and spaces allowed"
+    if not re.match(r"^[A-Za-z ]+$", data.get("lastName", "")):
+        errors["lastName"] = "Only letters and spaces allowed"
 
-    if errors:
-        return jsonify({"errors": errors}), 400  # CHANGED → Return errors by field
-
-    # First & Last Name
-    if not re.match(r"^[A-Za-z ]+$", data["firstName"]):
-         errors["firstName"] = "Only letters and spaces are allowed"
-    if not re.match(r"^[A-Za-z ]+$", data["lastName"]):
-         errors["lastName"] = "Only letters and spaces are allowed"
-
-
-    # Username
-    username = data["username"]
-    if any(u["username"].lower() == username.lower() for u in users):
+    # Username validation
+    if User.query.filter_by(username=data["username"]).first():
         errors["username"] = "Username already taken"
-    if not re.match(r"^(?!.*@)(?!.*\d{10})[A-Za-z0-9_.-]{8,25}$", username):
+    if not re.match(r"^(?!.*@)(?!.*\d{10})[A-Za-z0-9_.-]{8,25}$", data["username"]):
         errors["username"] = "Invalid username format"
 
-    # Email
-    email = data["email"]
-    if not re.match(r"^[\w\.-]+@[\w\.-]+\.\w+$", email):
+    # Email validation
+    if User.query.filter_by(email=data["email"]).first():
+        errors["email"] = "Email already registered"
+    if not re.match(r"^[\w\.-]+@[\w\.-]+\.\w+$", data["email"]):
         errors["email"] = "Invalid email format"
 
-    # Mobile
-    mobile = data["mobile"]
-    if not re.match(r"^[6-9]\d{9}$", mobile):
+    # Mobile validation
+    if User.query.filter_by(mobile=data["mobile"]).first():
+        errors["mobile"] = "Mobile number already registered"
+    if not re.match(r"^[6-9]\d{9}$", data["mobile"]):
         errors["mobile"] = "Invalid mobile number"
 
-    # Password
+    # Password validation
     password = data["password"]
     confirmPassword = data["confirmPassword"]
     if not re.match(r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&]).{8,}$", password):
-        errors["password"] = "Password must be 8+ chars with uppercase, lowercase, number, special char"
+        errors["password"] = "Password must have 8+ chars, uppercase, lowercase, number, special char"
     if password != confirmPassword:
         errors["confirmPassword"] = "Passwords do not match"
 
     if errors:
-        return jsonify({"errors": errors}), 400  # CHANGED
+        return jsonify({"errors": errors}), 400
 
-    # Save validated user (without storing password for security)
-    new_user = {
-        "firstName": data["firstName"],
-        "lastName": data["lastName"],
-        "dob": data["dob"],
-        "username": username,
-        "email": email,
-        "mobile": mobile
-    }
-    users.append(new_user)
-    save_users(users)
+    # Save to DB
+    new_user = User(
+        firstName=data["firstName"],
+        lastName=data["lastName"],
+        dob=data["dob"],
+        username=data["username"],
+        email=data["email"],
+        mobile=data["mobile"]
+    )
+    db.session.add(new_user)
+    db.session.commit()
 
     return jsonify({"message": "Registration successful!"})
-
 
 if __name__ == "__main__":
     app.run(debug=True)

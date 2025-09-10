@@ -10,6 +10,11 @@
 
 <div class="container mt-5">
   <h2 class="text-center mb-4 text-success">Registered Users</h2>
+
+  <div class="d-flex justify-content-end mb-3">
+    <a href="/" class="btn btn-danger">Back to Registration</a>
+  </div>
+
   <table class="table table-bordered table-striped">
     <thead class="table-primary">
       <tr>
@@ -21,7 +26,11 @@
         <th>Mobile</th>
       </tr>
     </thead>
-    <tbody id="usersTable"></tbody>
+    <tbody id="usersTable">
+      <tr>
+        <td colspan="6" class="text-center">Loading...</td>
+      </tr>
+    </tbody>
   </table>
 </div>
 
@@ -30,16 +39,24 @@
     .then(res => res.json())
     .then(users => {
       let tableBody = document.getElementById("usersTable");
-      tableBody.innerHTML = users.map(u => `
-        <tr>
-          <td>${u.firstName}</td>
-          <td>${u.lastName}</td>
-          <td>${u.dob}</td>
-          <td>${u.username}</td>
-          <td>${u.email}</td>
-          <td>${u.mobile}</td>
-        </tr>
-      `).join("");
+      if (users.length === 0) {
+        tableBody.innerHTML = `<tr><td colspan="6" class="text-center text-muted">No users registered yet.</td></tr>`;
+      } else {
+        tableBody.innerHTML = users.map(u => `
+          <tr>
+            <td>${u.firstName}</td>
+            <td>${u.lastName}</td>
+            <td>${u.dob}</td>
+            <td>${u.username}</td>
+            <td>${u.email}</td>
+            <td>${u.mobile}</td>
+          </tr>
+        `).join("");
+      }
+    })
+    .catch(() => {
+      document.getElementById("usersTable").innerHTML = 
+        `<tr><td colspan="6" class="text-center text-danger">Failed to load users.</td></tr>`;
     });
 </script>
 
